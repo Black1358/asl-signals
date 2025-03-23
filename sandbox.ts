@@ -1,23 +1,23 @@
 import { state, update, set } from "#/reactivity/sources.js";
 import { derived } from "#/reactivity/deriveds.js";
-import { user_effect, effect_root, effect_tracking } from "#/reactivity/effects.js";
+import { $effect } from "#/reactivity/effects.js";
 import { get } from "#/runtime.js";
 import { exit } from "node:process";
 
 const counter = state(0);
 const x2 = derived(() => get(counter) * 2);
 
-console.log("isRoot", !effect_tracking());
+console.log("isRoot", !$effect.tracking());
 
-effect_root(() => {
-	user_effect(() => {
-		console.log("isEffect", effect_tracking());
+$effect.root(() => {
+	$effect(() => {
+		console.log("isEffect", $effect.tracking());
 	});
-	user_effect(() => {
+	$effect(() => {
 		console.log("effect - one - x2", get(x2));
 		console.log("effect - one - counter", get(counter));
 	});
-	user_effect(() => {
+	$effect(() => {
 		console.log("effect - two - counter", get(counter));
 		console.log("effect - two - x2", get(x2));
 	});

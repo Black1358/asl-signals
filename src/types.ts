@@ -1,3 +1,4 @@
+export type Callback = () => void | (() => void);
 export type Equals = (this: State, value: unknown) => boolean;
 
 export interface Signal {

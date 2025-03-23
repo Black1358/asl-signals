@@ -1,13 +1,9 @@
-import type { Derived, Effect } from "#/types.js";
+import type { Callback, Derived, Effect } from "#/types.js";
 import { BOUNDARY_EFFECT, DERIVED, DESTROYED, DIRTY, EFFECT, EFFECT_HAS_DERIVED, EFFECT_RAN, ROOT_EFFECT, UNOWNED } from "#/constants.js";
 import { effect_in_teardown, effect_in_unowned_derived, effect_orphan } from "#/errors.js";
 import { remove_reactions, Runtime, schedule_effect, set_signal_status, update_effect } from "#/runtime.js";
 
-function validate_effect() {
-	if (Runtime.active_effect === null && Runtime.active_reaction === null) effect_orphan();
-	if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & UNOWNED) !== 0 && Runtime.active_effect === null) effect_in_unowned_derived();
-	if (Runtime.is_destroying_effect) effect_in_teardown();
-}
+//...
 
 function push_effect(effect: Effect, parent_effect: Effect) {
 	const parent_last = parent_effect.last;
@@ -20,7 +16,7 @@ function push_effect(effect: Effect, parent_effect: Effect) {
 	}
 }
 
-function create_effect(type: number, fn: null | (() => void | (() => void)), sync: boolean, push: boolean = true): Effect {
+function create_effect(type: number, fn: Callback | null, sync: boolean, push: boolean = true): Effect {
 	const parent = Runtime.active_effect;
 
 	const effect: Effect = {
@@ -66,34 +62,6 @@ function create_effect(type: number, fn: null | (() => void | (() => void)), syn
 	}
 
 	return effect;
-}
-
-//...
-
-/**
- * Internal representation of `$effect.tracking()`
- */
-export function effect_tracking(): boolean {
-	return Runtime.active_reaction !== null && !Runtime.untracking;
-}
-
-/**
- * Internal representation of `$effect(...)`
- * @param {() => void | (() => void)} fn
- */
-export function user_effect(fn: () => void | (() => void)) {
-	validate_effect();
-	return create_effect(EFFECT, fn, false);
-}
-
-/**
- * Internal representation of `$effect.root(...)`
- */
-export function effect_root(fn: () => void | (() => void)): () => void {
-	const effect = create_effect(ROOT_EFFECT, fn, true);
-	return () => {
-		destroy_effect(effect);
-	};
 }
 
 //...
@@ -166,3 +134,42 @@ export function unlink_effect(effect: Effect) {
 		if (parent.last === effect) parent.last = prev;
 	}
 }
+
+//...
+
+/**
+ * `$effect(...)`
+ */
+function effect(fn: Callback): Effect {
+	if (Runtime.active_effect === null && Runtime.active_reaction === null) effect_orphan();
+	if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & UNOWNED) !== 0 && Runtime.active_effect === null) effect_in_unowned_derived();
+	if (Runtime.is_destroying_effect) effect_in_teardown();
+	return create_effect(EFFECT, fn, false);
+}
+
+/**
+ * `$effect.root(...)`
+ */
+function effect_root(fn: Callback): () => void {
+	const effect = create_effect(ROOT_EFFECT, fn, true);
+	return () => {
+		destroy_effect(effect);
+	};
+}
+
+/**
+ * `$effect.tracking()`
+ */
+function effect_tracking(): boolean {
+	return Runtime.active_reaction !== null && !Runtime.untracking;
+}
+
+//...
+
+export type $Effect = typeof effect & { root: typeof effect_root; tracking: typeof effect_tracking };
+
+const $effect: $Effect = effect as $Effect;
+$effect.root = effect_root;
+$effect.tracking = effect_tracking;
+
+export { $effect };
