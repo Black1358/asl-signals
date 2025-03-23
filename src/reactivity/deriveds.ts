@@ -1,17 +1,17 @@
 import type { Derived, Effect } from "#/types.js";
 import { CLEAN, DERIVED, DIRTY, EFFECT_HAS_DERIVED, MAYBE_DIRTY, UNOWNED } from "#/constants.js";
+import { destroy_effect } from "#/reactivity/effects.js";
+import { equals, safe_equals } from "#/reactivity/equality.js";
 import {
-	active_reaction,
 	active_effect,
+	active_reaction,
+	increment_write_version,
+	push_reaction_value,
+	set_active_effect,
 	set_signal_status,
 	skip_reaction,
 	update_reaction,
-	increment_write_version,
-	set_active_effect,
-	push_reaction_value,
 } from "#/runtime.js";
-import { equals, safe_equals } from "#/reactivity/equality.js";
-import { destroy_effect } from "#/reactivity/effects.js";
 
 //...
 

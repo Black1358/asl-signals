@@ -12,7 +12,6 @@ export const MAYBE_DIRTY = 1 << 12;
 export const INERT = 1 << 13;
 export const DESTROYED = 1 << 14;
 export const EFFECT_RAN = 1 << 15;
-
 export const HEAD_EFFECT = 1 << 19;
 export const EFFECT_HAS_DERIVED = 1 << 20;
 export const EFFECT_IS_UPDATING = 1 << 21;
