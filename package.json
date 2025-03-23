@@ -1,0 +1,38 @@
+{
+	"name": "asl-signals",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"sandbox": "tsx sandbox.ts",
+		"format": "prettier --write ./",
+		"check": "tsc --noemit",
+		"lint": "eslint ./",
+		"debug": "concurrently \"pnpm run check\" \"pnpm run lint\""
+	},
+	"devDependencies": {
+		"@eslint/compat": "1.2.7",
+		"@eslint/js": "9.23.0",
+		"@types/eslint": "9.6.1",
+		"@types/eslint-config-prettier": "6.11.3",
+		"@types/node": "22.13.11",
+		"chalk": "5.4.1",
+		"concurrently": "9.1.2",
+		"eslint": "9.23.0",
+		"eslint-config-prettier": "10.1.1",
+		"globals": "16.0.0",
+		"prettier": "3.5.3",
+		"prettier-plugin-multiline-arrays": "4.0.3",
+		"tsx": "4.19.3",
+		"typescript": "5.8.2",
+		"typescript-eslint": "8.27.0"
+	},
+	"pnpm": {
+		"onlyBuiltDependencies": [
+			"esbuild"
+		]
+	}
+}

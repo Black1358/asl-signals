@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+Thumbs.db
+.fuse_hidden*
+.nfs*
+
+# IDEs
+.idea
+.fleet
+.vscode
+*.code-workspace
+*.bak
+*.swp
+*.swo
+
+# DEV
+drafts
+node_modules
+trash
+*-lock.*
+
+# TEMP
+.turbo
+.svelte-kit
+vite.config.*.timestamp-*
+coverage
+test-results
+temp-*
+logs
+*.log
+
+# BUILD
+.deploy
+.output
+.vercel
+.netlify
+.wrangler
+build
+dist
+*.zip
+*.rar
+
+# ETC
+static
+*.min.*
+*.html

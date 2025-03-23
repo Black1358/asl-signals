@@ -1,0 +1,33 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"compilerOptions": {
+		"paths": {
+			"#/*": ["./src/*"]
+		},
+		"target": "ES2022",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"allowJs": true,
+		"checkJs": true,
+		"strict": true,
+		"disableSizeLimit": true,
+		"erasableSyntaxOnly": true,
+		"noPropertyAccessFromIndexSignature": true,
+		"noUnusedParameters": false,
+		"noImplicitAny": false,
+		"allowSyntheticDefaultImports": false,
+		"verbatimModuleSyntax": true,
+		"esModuleInterop": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"isolatedModules": true,
+		"sourceMap": true,
+		"noEmit": true
+	},
+	"include": [
+		"./src/**/*.js",
+		"./src/**/*.ts",
+		"./*.js",
+		"./*.ts"
+	]
+}
