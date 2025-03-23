@@ -1,68 +1,7 @@
 import type { Callback, Derived, Effect } from "#/types.js";
-import { BOUNDARY_EFFECT, DERIVED, DESTROYED, DIRTY, EFFECT, EFFECT_HAS_DERIVED, EFFECT_RAN, ROOT_EFFECT, UNOWNED } from "#/constants.js";
+import { DERIVED, DESTROYED, DIRTY, EFFECT, ROOT_EFFECT, UNOWNED } from "#/constants.js";
 import { effect_in_teardown, effect_in_unowned_derived, effect_orphan } from "#/errors.js";
 import { remove_reactions, Runtime, schedule_effect, set_signal_status, update_effect } from "#/runtime.js";
-
-//...
-
-function push_effect(effect: Effect, parent_effect: Effect) {
-	const parent_last = parent_effect.last;
-	if (parent_last === null) {
-		parent_effect.last = parent_effect.first = effect;
-	} else {
-		parent_last.next = effect;
-		effect.prev = parent_last;
-		parent_effect.last = effect;
-	}
-}
-
-function create_effect(type: number, fn: Callback | null, sync: boolean, push: boolean = true): Effect {
-	const parent = Runtime.active_effect;
-
-	const effect: Effect = {
-		deps: null,
-		f: type | DIRTY,
-		first: null,
-		fn,
-		last: null,
-		next: null,
-		parent,
-		prev: null,
-		teardown: null,
-		wv: 0,
-	};
-
-	if (sync) {
-		try {
-			update_effect(effect);
-			effect.f |= EFFECT_RAN;
-		} catch (e) {
-			destroy_effect(effect);
-			throw e;
-		}
-	} else if (fn !== null) {
-		schedule_effect(effect);
-	}
-
-	// if an effect has no dependencies, no DOM and no teardown function,
-	// don't bother adding it to the effect tree
-	const inert =
-		sync && effect.deps === null && effect.first === null && effect.teardown === null && (effect.f & (EFFECT_HAS_DERIVED | BOUNDARY_EFFECT)) === 0;
-
-	if (!inert && push) {
-		if (parent !== null) {
-			push_effect(effect, parent);
-		}
-
-		// if we're in a derived, add the effect there too
-		if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & DERIVED) !== 0) {
-			const derived = Runtime.active_reaction as Derived;
-			(derived.effects ??= []).push(effect);
-		}
-	}
-
-	return effect;
-}
 
 //...
 
@@ -137,6 +76,21 @@ export function unlink_effect(effect: Effect) {
 
 //...
 
+function create_effect(type: number, fn: Callback, parent: Effect | null): Effect {
+	return {
+		deps: null,
+		f: type | DIRTY,
+		first: null,
+		fn,
+		last: null,
+		next: null,
+		parent,
+		prev: null,
+		teardown: null,
+		wv: 0,
+	};
+}
+
 /**
  * `$effect(...)`
  */
@@ -144,17 +98,47 @@ function effect(fn: Callback): Effect {
 	if (Runtime.active_effect === null && Runtime.active_reaction === null) effect_orphan();
 	if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & UNOWNED) !== 0 && Runtime.active_effect === null) effect_in_unowned_derived();
 	if (Runtime.is_destroying_effect) effect_in_teardown();
-	return create_effect(EFFECT, fn, false);
+
+	const parent = Runtime.active_effect;
+	const effect: Effect = create_effect(EFFECT, fn, parent);
+
+	schedule_effect(effect);
+
+	if (parent !== null) {
+		const parent_last = parent.last;
+		if (parent_last === null) {
+			parent.last = parent.first = effect;
+		} else {
+			parent_last.next = effect;
+			effect.prev = parent_last;
+			parent.last = effect;
+		}
+	}
+
+	// if we're in a derived, add the effect there too
+	if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & DERIVED) !== 0) {
+		const derived = Runtime.active_reaction as Derived;
+		(derived.effects ??= []).push(effect);
+	}
+
+	return effect;
 }
 
 /**
  * `$effect.root(...)`
  */
 function effect_root(fn: Callback): () => void {
-	const effect = create_effect(ROOT_EFFECT, fn, true);
-	return () => {
+	const parent = Runtime.active_effect; // Это глобальный объект-состояние
+	const effect = create_effect(ROOT_EFFECT, fn, parent);
+
+	try {
+		update_effect(effect);
+	} catch (e) {
 		destroy_effect(effect);
-	};
+		throw e;
+	}
+
+	return () => destroy_effect(effect); // Функция уничтожения зоны эффектов
 }
 
 /**
