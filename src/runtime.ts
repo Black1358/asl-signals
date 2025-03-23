@@ -1,3 +1,4 @@
+import type { Derived, Effect, Reaction, Signal, State } from "#/types.js";
 import {
 	BOUNDARY_EFFECT,
 	CLEAN,
@@ -16,7 +17,6 @@ import { effect_update_depth_exceeded } from "#/errors.js";
 import { destroy_derived_effects, update_derived } from "#/reactivity/deriveds.js";
 import { destroy_effect_children, execute_effect_teardown, unlink_effect } from "#/reactivity/effects.js";
 import { old_values } from "#/reactivity/sources.js";
-import type { Derived, Effect, Reaction, Signal, State } from "#/types.js";
 
 export const Runtime: {
 	untracking: boolean;
@@ -89,7 +89,7 @@ export function increment_write_version() {
  * Determines whether a derived or effect is dirty.
  * If it is MAYBE_DIRTY, will set the status to CLEAN
  */
-export function check_dirtiness(reaction: Reaction): boolean {
+function check_dirtiness(reaction: Reaction): boolean {
 	const flags = reaction.f;
 
 	if ((flags & DIRTY) !== 0) {
@@ -184,7 +184,7 @@ function should_rethrow_error(effect: Effect): boolean {
 	return (effect.f & DESTROYED) === 0 && (effect.parent === null || (effect.parent.f & BOUNDARY_EFFECT) === 0);
 }
 
-export function handle_error(error: unknown, effect: Effect, previous_effect: Effect | null) {
+function handle_error(error: unknown, effect: Effect, previous_effect: Effect | null) {
 	if (is_throwing_error) {
 		if (previous_effect === null) {
 			is_throwing_error = false;

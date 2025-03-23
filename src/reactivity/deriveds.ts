@@ -8,6 +8,7 @@ import { increment_write_version, push_reaction_value, Runtime, set_signal_statu
 
 export function derived<V>(fn: () => V): Derived<V> {
 	let flags = DERIVED | DIRTY;
+
 	const parent_derived =
 		Runtime.active_reaction !== null && (Runtime.active_reaction.f & DERIVED) !== 0 ? (Runtime.active_reaction as Derived) : null;
 
