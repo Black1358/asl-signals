@@ -8,7 +8,6 @@ import {
 	EFFECT,
 	EFFECT_HAS_DERIVED,
 	EFFECT_RAN,
-	HEAD_EFFECT,
 	ROOT_EFFECT,
 	UNOWNED,
 } from "#/constants.js";
@@ -44,7 +43,7 @@ export function execute_effect_teardown(effect: Effect) {
 	}
 }
 
-export function destroy_effect_children(signal: Effect, remove_dom: boolean = false) {
+export function destroy_effect_children(signal: Effect) {
 	let effect = signal.first;
 	signal.first = signal.last = null;
 
@@ -55,7 +54,7 @@ export function destroy_effect_children(signal: Effect, remove_dom: boolean = fa
 			// this is now an independent root
 			effect.parent = null;
 		} else {
-			destroy_effect(effect, remove_dom);
+			destroy_effect(effect);
 		}
 
 		effect = next;
@@ -74,11 +73,8 @@ export function destroy_block_effect_children(signal: Effect) {
 	}
 }
 
-export function destroy_effect(effect: Effect, remove_dom: boolean = true) {
-	let removed = false;
-	if (remove_dom || (effect.f & HEAD_EFFECT) !== 0) removed = true;
-
-	destroy_effect_children(effect, remove_dom && !removed);
+export function destroy_effect(effect: Effect) {
+	destroy_effect_children(effect);
 	remove_reactions(effect, 0);
 	set_signal_status(effect, DESTROYED);
 
@@ -87,9 +83,7 @@ export function destroy_effect(effect: Effect, remove_dom: boolean = true) {
 	const parent = effect.parent;
 
 	// If the parent doesn't have any children, then skip this work altogether
-	if (parent !== null && parent.first !== null) {
-		unlink_effect(effect);
-	}
+	if (parent !== null && parent.first !== null) unlink_effect(effect);
 
 	// `first` and `child` are nulled out in destroy_effect_children
 	// we don't null out `parent` so that error propagation can work correctly
@@ -196,9 +190,7 @@ export function effect(fn: Callback) {
  */
 export function effect_root(fn: Callback): () => void {
 	const effect = create_effect(ROOT_EFFECT, fn, true);
-	return () => {
-		destroy_effect(effect);
-	};
+	return () => destroy_effect(effect); // Функция уничтожения зоны эффектов
 }
 
 /**
