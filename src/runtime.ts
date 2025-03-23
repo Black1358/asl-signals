@@ -1,70 +1,66 @@
-import type { Derived, Effect, Reaction, Signal, State } from "#/types.js";
-import { destroy_block_effect_children, destroy_effect_children, execute_effect_teardown, unlink_effect } from "#/reactivity/effects.js";
 import {
-	EFFECT,
-	DIRTY,
-	MAYBE_DIRTY,
+	BOUNDARY_EFFECT,
 	CLEAN,
 	DERIVED,
-	UNOWNED,
 	DESTROYED,
-	INERT,
-	BRANCH_EFFECT,
-	BLOCK_EFFECT,
-	ROOT_EFFECT,
+	DIRTY,
 	DISCONNECTED,
-	BOUNDARY_EFFECT,
+	EFFECT,
 	EFFECT_IS_UPDATING,
+	INERT,
+	MAYBE_DIRTY,
+	ROOT_EFFECT,
+	UNOWNED,
 } from "#/constants.js";
-import { old_values } from "#/reactivity/sources.js";
-import { destroy_derived_effects, update_derived } from "#/reactivity/deriveds.js";
 import { effect_update_depth_exceeded } from "#/errors.js";
+import { destroy_derived_effects, update_derived } from "#/reactivity/deriveds.js";
+import { destroy_effect_children, execute_effect_teardown, unlink_effect } from "#/reactivity/effects.js";
+import { old_values } from "#/reactivity/sources.js";
+import type { Derived, Effect, Reaction, Signal, State } from "#/types.js";
 
+export const Runtime: {
+	untracking: boolean;
+	/**
+	 * Tracks writes that the effect it's executed in doesn't listen to yet,
+	 * so that the dependency can be added to the effect later on if it then reads it
+	 */
+	untracked_writes: State[] | null;
+	/**
+	 * If we are working with a get() chain that has no active container,
+	 * to prevent memory leaks, we skip adding the reaction.
+	 */
+	skip_reaction: boolean;
+	is_destroying_effect: boolean;
+	active_reaction: Reaction | null;
+	active_effect: Effect | null;
+	reaction_sources: State[] | null;
+} = {
+	untracking: false,
+	untracked_writes: null,
+	skip_reaction: false,
+	is_destroying_effect: false,
+	active_reaction: null,
+	active_effect: null,
+	reaction_sources: null,
+};
+
+export function push_reaction_value(value: State) {
+	if (Runtime.active_reaction !== null && Runtime.active_reaction.f & EFFECT_IS_UPDATING) {
+		if (Runtime.reaction_sources === null) {
+			Runtime.reaction_sources = [value];
+		} else {
+			Runtime.reaction_sources.push(value);
+		}
+	}
+}
+
+//...
+
+let queued_root_effects: Effect[] = [];
 let is_throwing_error: boolean = false;
 let is_flushing: boolean = false;
 let last_scheduled_effect: Effect | null = null;
 let is_updating_effect = false;
-
-export let is_destroying_effect = false;
-export function set_is_destroying_effect(value: boolean) {
-	is_destroying_effect = value;
-}
-
-let queued_root_effects: Effect[] = [];
-
-export let active_reaction: Reaction | null = null;
-
-export let untracking: boolean = false;
-
-export function set_active_reaction(reaction: Reaction | null) {
-	active_reaction = reaction;
-}
-
-export let active_effect: Effect | null = null;
-
-export function set_active_effect(effect: Effect | null) {
-	active_effect = effect;
-}
-
-/**
- * When sources are created within a reaction, reading and writing
- * them should not cause a re-run
- */
-export let reaction_sources: State[] | null = null;
-
-export function set_reaction_sources(sources: State[] | null) {
-	reaction_sources = sources;
-}
-
-export function push_reaction_value(value: State) {
-	if (active_reaction !== null && active_reaction.f & EFFECT_IS_UPDATING) {
-		if (reaction_sources === null) {
-			set_reaction_sources([value]);
-		} else {
-			reaction_sources.push(value);
-		}
-	}
-}
 
 /**
  * The dependencies of the reaction that is currently being executed. In many cases,
@@ -72,18 +68,7 @@ export function push_reaction_value(value: State) {
  * and until a new dependency is accessed — we track this via `skipped_deps`
  */
 let new_deps: State[] | null = null;
-
 let skipped_deps = 0;
-
-/**
- * Tracks writes that the effect it's executed in doesn't listen to yet,
- * so that the dependency can be added to the effect later on if it then reads it
- */
-export let untracked_writes: State[] | null = null;
-
-export function set_untracked_writes(value: State[] | null) {
-	untracked_writes = value;
-}
 
 /**
  * Used by sources and deriveds for handling updates.
@@ -94,9 +79,7 @@ let write_version: number = 1;
 /** Used to version each read of a source of derived to avoid duplicating dependencies inside a reaction */
 let read_version: number = 0;
 
-// If we are working with a get() chain that has no active container,
-// to prevent memory leaks, we skip adding the reaction.
-export let skip_reaction = false;
+//...
 
 export function increment_write_version() {
 	return ++write_version;
@@ -121,7 +104,7 @@ export function check_dirtiness(reaction: Reaction): boolean {
 			let i: number;
 			let dependency: State;
 			const is_disconnected = (flags & DISCONNECTED) !== 0;
-			const is_unowned_connected = is_unowned && active_effect !== null && !skip_reaction;
+			const is_unowned_connected = is_unowned && Runtime.active_effect !== null && !Runtime.skip_reaction;
 			const length = dependencies.length;
 
 			// If we are working with a disconnected or an unowned signal that is now connected (due to an active effect)
@@ -167,7 +150,7 @@ export function check_dirtiness(reaction: Reaction): boolean {
 
 		// Unowned signals should never be marked as clean unless they
 		// are used within an active_effect without skip_reaction
-		if (!is_unowned || (active_effect !== null && !skip_reaction)) {
+		if (!is_unowned || (Runtime.active_effect !== null && !Runtime.skip_reaction)) {
 			set_signal_status(reaction, CLEAN);
 		}
 	}
@@ -222,7 +205,7 @@ function schedule_possible_effect_self_invalidation(signal: State, effect: Effec
 	for (let i = 0; i < reactions.length; i++) {
 		const reaction = reactions[i];
 
-		if (reaction_sources?.includes(signal)) continue;
+		if (Runtime.reaction_sources?.includes(signal)) continue;
 
 		if ((reaction.f & DERIVED) !== 0) {
 			schedule_possible_effect_self_invalidation(reaction as Derived, effect, false);
@@ -245,22 +228,22 @@ function schedule_possible_effect_self_invalidation(signal: State, effect: Effec
 export function update_reaction<V>(reaction: Reaction): V {
 	const previous_deps = new_deps;
 	const previous_skipped_deps = skipped_deps;
-	let previous_untracked_writes = untracked_writes;
-	const previous_reaction = active_reaction;
-	const previous_skip_reaction = skip_reaction;
-	const previous_reaction_sources = reaction_sources;
-	const previous_untracking = untracking;
+	let previous_untracked_writes = Runtime.untracked_writes;
+	const previous_reaction = Runtime.active_reaction;
+	const previous_skip_reaction = Runtime.skip_reaction;
+	const previous_reaction_sources = Runtime.reaction_sources;
+	const previous_untracking = Runtime.untracking;
 
 	const flags = reaction.f;
 
 	new_deps = null;
 	skipped_deps = 0;
-	untracked_writes = null;
-	skip_reaction = (flags & UNOWNED) !== 0 && (untracking || !is_updating_effect || active_reaction === null);
-	active_reaction = (flags & (BRANCH_EFFECT | ROOT_EFFECT)) === 0 ? reaction : null;
+	Runtime.untracked_writes = null;
+	Runtime.skip_reaction = (flags & UNOWNED) !== 0 && (Runtime.untracking || !is_updating_effect || Runtime.active_reaction === null);
+	Runtime.active_reaction = (flags & ROOT_EFFECT) === 0 ? reaction : null;
 
-	reaction_sources = null;
-	untracking = false;
+	Runtime.reaction_sources = null;
+	Runtime.untracking = false;
 	read_version++;
 
 	reaction.f |= EFFECT_IS_UPDATING;
@@ -286,7 +269,7 @@ export function update_reaction<V>(reaction: Reaction): V {
 				reaction.deps = deps = new_deps;
 			}
 
-			if (!skip_reaction) {
+			if (!Runtime.skip_reaction) {
 				for (i = skipped_deps; i < deps!.length; i++) {
 					(deps![i].reactions ??= []).push(reaction);
 				}
@@ -300,9 +283,9 @@ export function update_reaction<V>(reaction: Reaction): V {
 		// ensure that if any of those untracked writes result in re-invalidation
 		// of the current effect, then that happens accordingly
 		// noinspection PointlessBooleanExpressionJS
-		if (untracked_writes !== null && !untracking && deps !== null && (reaction.f & (DERIVED | MAYBE_DIRTY | DIRTY)) === 0) {
-			for (i = 0; i < (untracked_writes as State[]).length; i++) {
-				schedule_possible_effect_self_invalidation(untracked_writes[i], reaction as Effect);
+		if (Runtime.untracked_writes !== null && !Runtime.untracking && deps !== null && (reaction.f & (DERIVED | MAYBE_DIRTY | DIRTY)) === 0) {
+			for (i = 0; i < (Runtime.untracked_writes as State[]).length; i++) {
+				schedule_possible_effect_self_invalidation(Runtime.untracked_writes[i], reaction as Effect);
 			}
 		}
 
@@ -313,11 +296,11 @@ export function update_reaction<V>(reaction: Reaction): V {
 		if (previous_reaction !== null) {
 			read_version++;
 
-			if ((untracked_writes as State[] | null) !== null) {
+			if ((Runtime.untracked_writes as State[] | null) !== null) {
 				if (previous_untracked_writes === null) {
-					previous_untracked_writes = untracked_writes;
+					previous_untracked_writes = Runtime.untracked_writes;
 				} else {
-					previous_untracked_writes.push(...(untracked_writes as unknown as State[]));
+					previous_untracked_writes.push(...(Runtime.untracked_writes as unknown as State[]));
 				}
 			}
 		}
@@ -326,11 +309,11 @@ export function update_reaction<V>(reaction: Reaction): V {
 	} finally {
 		new_deps = previous_deps;
 		skipped_deps = previous_skipped_deps;
-		untracked_writes = previous_untracked_writes;
-		active_reaction = previous_reaction;
-		skip_reaction = previous_skip_reaction;
-		reaction_sources = previous_reaction_sources;
-		untracking = previous_untracking;
+		Runtime.untracked_writes = previous_untracked_writes;
+		Runtime.active_reaction = previous_reaction;
+		Runtime.skip_reaction = previous_skip_reaction;
+		Runtime.reaction_sources = previous_reaction_sources;
+		Runtime.untracking = previous_untracking;
 
 		reaction.f ^= EFFECT_IS_UPDATING;
 	}
@@ -403,19 +386,14 @@ export function update_effect(effect: Effect): void {
 
 	set_signal_status(effect, CLEAN);
 
-	const previous_effect = active_effect;
+	const previous_effect = Runtime.active_effect;
 	const was_updating_effect = is_updating_effect;
 
-	active_effect = effect;
+	Runtime.active_effect = effect;
 	is_updating_effect = true;
 
 	try {
-		if ((flags & BLOCK_EFFECT) !== 0) {
-			destroy_block_effect_children(effect);
-		} else {
-			destroy_effect_children(effect);
-		}
-
+		destroy_effect_children(effect);
 		execute_effect_teardown(effect);
 		const teardown = update_reaction(effect);
 		effect.teardown = typeof teardown === "function" ? (teardown as () => void) : null;
@@ -424,7 +402,7 @@ export function update_effect(effect: Effect): void {
 		handle_error(error, effect, previous_effect);
 	} finally {
 		is_updating_effect = was_updating_effect;
-		active_effect = previous_effect;
+		Runtime.active_effect = previous_effect;
 	}
 }
 
@@ -527,7 +505,7 @@ export function schedule_effect(signal: Effect): void {
 		effect = effect.parent;
 		const flags = effect.f;
 
-		if ((flags & (ROOT_EFFECT | BRANCH_EFFECT)) !== 0) {
+		if ((flags & ROOT_EFFECT) !== 0) {
 			if ((flags & CLEAN) === 0) return;
 			effect.f ^= CLEAN;
 		}
@@ -549,7 +527,7 @@ function process_effects(root: Effect): Effect[] {
 
 	while (effect !== null) {
 		const flags = effect.f;
-		const is_branch = (flags & (BRANCH_EFFECT | ROOT_EFFECT)) !== 0;
+		const is_branch = (flags & ROOT_EFFECT) !== 0;
 		const is_skippable_branch = is_branch && (flags & CLEAN) !== 0;
 
 		if (!is_skippable_branch && (flags & INERT) === 0) {
@@ -561,16 +539,16 @@ function process_effects(root: Effect): Effect[] {
 				// Ensure we set the effect to be the active reaction
 				// to ensure that unowned deriveds are correctly tracked
 				// because we're flushing the current effect
-				const previous_active_reaction = active_reaction;
+				const previous_active_reaction = Runtime.active_reaction;
 				try {
-					active_reaction = effect;
+					Runtime.active_reaction = effect;
 					if (check_dirtiness(effect)) {
 						update_effect(effect);
 					}
 				} catch (error) {
 					handle_error(error, effect, null);
 				} finally {
-					active_reaction = previous_active_reaction;
+					Runtime.active_reaction = previous_active_reaction;
 				}
 			}
 
@@ -630,9 +608,9 @@ export function get<V>(signal: State<V>): V {
 	const is_derived = (flags & DERIVED) !== 0;
 
 	// Register the dependency on the current reaction signal.
-	if (active_reaction !== null && !untracking) {
-		if (!reaction_sources?.includes(signal)) {
-			const deps = active_reaction.deps;
+	if (Runtime.active_reaction !== null && !Runtime.untracking) {
+		if (!Runtime.reaction_sources?.includes(signal)) {
+			const deps = Runtime.active_reaction.deps;
 			if (signal.rv < read_version) {
 				signal.rv = read_version;
 				// If the signal is accessing the same dependencies in the same
@@ -642,7 +620,7 @@ export function get<V>(signal: State<V>): V {
 					skipped_deps++;
 				} else if (new_deps === null) {
 					new_deps = [signal];
-				} else if (!skip_reaction || !new_deps.includes(signal)) {
+				} else if (!Runtime.skip_reaction || !new_deps.includes(signal)) {
 					// Normally we can push duplicated dependencies to `new_deps`, but if we're inside
 					// an unowned derived because skip_reaction is true, then we need to ensure that
 					// we don't have duplicates
@@ -671,7 +649,7 @@ export function get<V>(signal: State<V>): V {
 		}
 	}
 
-	if (is_destroying_effect && old_values.has(signal)) {
+	if (Runtime.is_destroying_effect && old_values.has(signal)) {
 		return old_values.get(signal);
 	}
 
@@ -692,12 +670,12 @@ export function get<V>(signal: State<V>): V {
  * ```
  */
 export function untrack<T>(fn: () => T): T {
-	const previous_untracking = untracking;
+	const previous_untracking = Runtime.untracking;
 	try {
-		untracking = true;
+		Runtime.untracking = true;
 		return fn();
 	} finally {
-		untracking = previous_untracking;
+		Runtime.untracking = previous_untracking;
 	}
 }
 

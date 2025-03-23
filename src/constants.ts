@@ -1,7 +1,5 @@
 export const DERIVED = 1 << 1;
 export const EFFECT = 1 << 2;
-export const BLOCK_EFFECT = 1 << 4;
-export const BRANCH_EFFECT = 1 << 5;
 export const ROOT_EFFECT = 1 << 6;
 export const BOUNDARY_EFFECT = 1 << 7;
 export const UNOWNED = 1 << 8;

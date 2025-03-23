@@ -1,6 +1,6 @@
+import type { Derived, Effect } from "#/types.js";
 import {
 	BOUNDARY_EFFECT,
-	BRANCH_EFFECT,
 	DERIVED,
 	DESTROYED,
 	DIRTY,
@@ -12,24 +12,12 @@ import {
 	UNOWNED,
 } from "#/constants.js";
 import { effect_in_teardown, effect_in_unowned_derived, effect_orphan } from "#/errors.js";
-import {
-	active_effect,
-	active_reaction,
-	is_destroying_effect,
-	remove_reactions,
-	schedule_effect,
-	set_active_reaction,
-	set_is_destroying_effect,
-	set_signal_status,
-	untracking,
-	update_effect,
-} from "#/runtime.js";
-import type { Derived, Effect } from "#/types.js";
+import { remove_reactions, Runtime, schedule_effect, set_signal_status, update_effect } from "#/runtime.js";
 
 export function validate_effect() {
-	if (active_effect === null && active_reaction === null) effect_orphan();
-	if (active_reaction !== null && (active_reaction.f & UNOWNED) !== 0 && active_effect === null) effect_in_unowned_derived();
-	if (is_destroying_effect) effect_in_teardown();
+	if (Runtime.active_effect === null && Runtime.active_reaction === null) effect_orphan();
+	if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & UNOWNED) !== 0 && Runtime.active_effect === null) effect_in_unowned_derived();
+	if (Runtime.is_destroying_effect) effect_in_teardown();
 }
 
 function push_effect(effect: Effect, parent_effect: Effect) {
@@ -44,7 +32,7 @@ function push_effect(effect: Effect, parent_effect: Effect) {
 }
 
 function create_effect(type: number, fn: null | (() => void | (() => void)), sync: boolean, push: boolean = true): Effect {
-	const parent = active_effect;
+	const parent = Runtime.active_effect;
 
 	const effect: Effect = {
 		deps: null,
@@ -82,8 +70,8 @@ function create_effect(type: number, fn: null | (() => void | (() => void)), syn
 		}
 
 		// if we're in a derived, add the effect there too
-		if (active_reaction !== null && (active_reaction.f & DERIVED) !== 0) {
-			const derived = active_reaction as Derived;
+		if (Runtime.active_reaction !== null && (Runtime.active_reaction.f & DERIVED) !== 0) {
+			const derived = Runtime.active_reaction as Derived;
 			(derived.effects ??= []).push(effect);
 		}
 	}
@@ -97,7 +85,7 @@ function create_effect(type: number, fn: null | (() => void | (() => void)), syn
  * Internal representation of `$effect.tracking()`
  */
 export function effect_tracking(): boolean {
-	return active_reaction !== null && !untracking;
+	return Runtime.active_reaction !== null && !Runtime.untracking;
 }
 
 /**
@@ -124,15 +112,15 @@ export function effect_root(fn: () => void | (() => void)): () => void {
 export function execute_effect_teardown(effect: Effect) {
 	const teardown = effect.teardown;
 	if (teardown !== null) {
-		const previously_destroying_effect = is_destroying_effect;
-		const previous_reaction = active_reaction;
-		set_is_destroying_effect(true);
-		set_active_reaction(null);
+		const previously_destroying_effect = Runtime.is_destroying_effect;
+		const previous_reaction = Runtime.active_reaction;
+		Runtime.is_destroying_effect = true;
+		Runtime.active_reaction = null;
 		try {
 			teardown.call(null);
 		} finally {
-			set_is_destroying_effect(previously_destroying_effect);
-			set_active_reaction(previous_reaction);
+			Runtime.is_destroying_effect = previously_destroying_effect;
+			Runtime.active_reaction = previous_reaction;
 		}
 	}
 }
@@ -151,18 +139,6 @@ export function destroy_effect_children(signal: Effect, remove_dom: boolean = fa
 			destroy_effect(effect, remove_dom);
 		}
 
-		effect = next;
-	}
-}
-
-export function destroy_block_effect_children(signal: Effect) {
-	let effect = signal.first;
-
-	while (effect !== null) {
-		const next = effect.next;
-		if ((effect.f & BRANCH_EFFECT) === 0) {
-			destroy_effect(effect);
-		}
 		effect = next;
 	}
 }
