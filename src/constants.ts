@@ -1,5 +1,7 @@
 export const DERIVED = 1 << 1;
 export const EFFECT = 1 << 2;
+export const BLOCK_EFFECT = 1 << 4;
+export const BRANCH_EFFECT = 1 << 5;
 export const ROOT_EFFECT = 1 << 6;
 export const BOUNDARY_EFFECT = 1 << 7;
 export const UNOWNED = 1 << 8;
@@ -9,6 +11,7 @@ export const DIRTY = 1 << 11;
 export const MAYBE_DIRTY = 1 << 12;
 export const INERT = 1 << 13;
 export const DESTROYED = 1 << 14;
+export const EFFECT_RAN = 1 << 15;
 export const EFFECT_HAS_DERIVED = 1 << 20;
 export const EFFECT_IS_UPDATING = 1 << 21;
 export const STATE_SYMBOL = Symbol("$state");

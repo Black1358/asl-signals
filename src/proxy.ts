@@ -1,21 +1,17 @@
 import type { State } from "#/types.js";
 import { STATE_SYMBOL } from "#/constants.js";
 import { state_descriptors_fixed, state_prototype_fixed } from "#/errors.js";
-import { set, $state } from "#/reactivity/sources.js";
-import { get, Runtime } from "#/runtime.js";
+import { $state, set } from "#/reactivity/sources.js";
+import { active_effect, active_reaction, get, set_active_reaction } from "#/runtime.js";
 
 const UNINITIALIZED = Symbol();
 
-/**
- * @template T
- * @param {T} value
- * @returns {T}
- */
 export function proxy<T>(value: T): T {
 	// if non-proxyable, or is already a proxy, return `value`
 	if (typeof value !== "object" || value === null || STATE_SYMBOL in value) {
 		return value;
 	}
+
 	const prototype = Object.getPrototypeOf(value);
 	if (prototype !== Object.prototype && prototype !== Array.prototype) {
 		return value;
@@ -24,13 +20,13 @@ export function proxy<T>(value: T): T {
 	const sources: Map<any, State<any>> = new Map();
 	const is_proxied_array = Array.isArray(value);
 	const version = $state(0);
-	const reaction = Runtime.active_reaction;
+	const reaction = active_reaction;
 
 	const with_parent = <T>(fn: () => T) => {
-		const previous_reaction = Runtime.active_reaction;
-		Runtime.active_reaction = reaction;
+		const previous_reaction = active_reaction;
+		set_active_reaction(reaction);
 		const result: T = fn();
-		Runtime.active_reaction = previous_reaction;
+		set_active_reaction(previous_reaction);
 		return result;
 	};
 
@@ -144,7 +140,7 @@ export function proxy<T>(value: T): T {
 			let s = sources.get(prop);
 			const has = (s !== undefined && s.v !== UNINITIALIZED) || Reflect.has(target, prop);
 
-			if (s !== undefined || (Runtime.active_effect !== null && (!has || Object.getOwnPropertyDescriptor(target, prop)?.writable))) {
+			if (s !== undefined || (active_effect !== null && (!has || Object.getOwnPropertyDescriptor(target, prop)?.writable))) {
 				if (s === undefined) {
 					s = with_parent(() => $state(has ? proxy(target[prop]) : UNINITIALIZED));
 					sources.set(prop, s);

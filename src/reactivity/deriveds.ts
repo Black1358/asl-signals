@@ -2,22 +2,29 @@ import type { Derived, Effect } from "#/types.js";
 import { CLEAN, DERIVED, DIRTY, EFFECT_HAS_DERIVED, MAYBE_DIRTY, UNOWNED } from "#/constants.js";
 import { destroy_effect } from "#/reactivity/effects.js";
 import { equals, safe_equals } from "#/reactivity/equality.js";
-import { increment_write_version, push_reaction_value, Runtime, set_signal_status, update_reaction } from "#/runtime.js";
+import {
+	active_effect,
+	active_reaction,
+	increment_write_version,
+	push_reaction_value,
+	set_active_effect,
+	set_signal_status,
+	skip_reaction,
+	update_reaction,
+} from "#/runtime.js";
 
 //...
 
 export function derived<V>(fn: () => V): Derived<V> {
 	let flags = DERIVED | DIRTY;
+	const parent_derived = active_reaction !== null && (active_reaction.f & DERIVED) !== 0 ? (active_reaction as Derived) : null;
 
-	const parent_derived =
-		Runtime.active_reaction !== null && (Runtime.active_reaction.f & DERIVED) !== 0 ? (Runtime.active_reaction as Derived) : null;
-
-	if (Runtime.active_effect === null || (parent_derived !== null && (parent_derived.f & UNOWNED) !== 0)) {
+	if (active_effect === null || (parent_derived !== null && (parent_derived.f & UNOWNED) !== 0)) {
 		flags |= UNOWNED;
 	} else {
 		// Since deriveds are evaluated lazily, any effects created inside them are
 		// created too late to ensure that the parent effect is added to the tree
-		Runtime.active_effect.f |= EFFECT_HAS_DERIVED;
+		active_effect.f |= EFFECT_HAS_DERIVED;
 	}
 
 	return {
@@ -30,7 +37,7 @@ export function derived<V>(fn: () => V): Derived<V> {
 		rv: 0,
 		v: null as V,
 		wv: 0,
-		parent: parent_derived ?? Runtime.active_effect,
+		parent: parent_derived ?? active_effect,
 	};
 }
 
@@ -59,15 +66,15 @@ function get_derived_parent_effect(derived: Derived): Effect | null {
 
 function execute_derived<T>(derived: Derived<T>): T {
 	let value: T;
-	const prev_active_effect = Runtime.active_effect;
+	const prev_active_effect = active_effect;
 
-	Runtime.active_effect = get_derived_parent_effect(derived);
+	set_active_effect(get_derived_parent_effect(derived));
 
 	try {
 		destroy_derived_effects(derived);
 		value = update_reaction(derived);
 	} finally {
-		Runtime.active_effect = prev_active_effect;
+		set_active_effect(prev_active_effect);
 	}
 
 	return value;
@@ -77,7 +84,7 @@ function execute_derived<T>(derived: Derived<T>): T {
 
 export function update_derived(derived: Derived) {
 	const value = execute_derived(derived);
-	const status = (Runtime.skip_reaction || (derived.f & UNOWNED) !== 0) && derived.deps !== null ? MAYBE_DIRTY : CLEAN;
+	const status = (skip_reaction || (derived.f & UNOWNED) !== 0) && derived.deps !== null ? MAYBE_DIRTY : CLEAN;
 
 	set_signal_status(derived, status);
 

@@ -18,13 +18,24 @@ update(a); // 1
 update(b); // 1
 
 $effect.root(() => {
+	console.log("root", $effect.tracking());
 	console.log("$effect -  a", dump());
 	$effect.root(() => {
+		console.log("nested", $effect.tracking());
 		$effect(() => {
+			console.log("nested - user_effect", $effect.tracking());
 			console.log("$effect - b", dump());
+			console.log("if", get(b) < 3, get(b));
+			if (get(b) < 3) {
+				console.log("if");
+				$effect(() => {
+					console.log("$effect - i", dump());
+				});
+			}
 		});
 	});
 	$effect(() => {
+		console.log("root - user_effect", $effect.tracking());
 		console.log("$effect - c", dump());
 	});
 });
