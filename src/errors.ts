@@ -1,5 +1,5 @@
 /**
- * `$effect()` cannot be used inside an effect cleanup function
+ * `%rune%` cannot be used inside an effect cleanup function
  */
 export function effect_in_teardown(): never {
 	throw new Error(`https://svelte.dev/e/effect_in_teardown`);
@@ -13,7 +13,7 @@ export function effect_in_unowned_derived(): never {
 }
 
 /**
- * `$effect()` can only be used inside an `$effect.root()`
+ * `%rune%` can only be used inside an effect (e.g. during component initialisation)
  */
 export function effect_orphan(): never {
 	throw new Error(`https://svelte.dev/e/effect_orphan`);
