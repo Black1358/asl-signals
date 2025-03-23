@@ -1,10 +1,10 @@
-import { state, update, set } from "#/reactivity/sources.js";
+import { $state, update, set } from "#/reactivity/sources.js";
 import { derived } from "#/reactivity/deriveds.js";
 import { $effect } from "#/reactivity/effects.js";
 import { get } from "#/runtime.js";
 import { exit } from "node:process";
 
-const counter = state(0);
+const counter = $state(0);
 const x2 = derived(() => get(counter) * 2);
 
 console.log("isRoot", !$effect.tracking());

@@ -8,7 +8,7 @@ import { get, increment_write_version, push_reaction_value, Runtime, schedule_ef
 /**
  * `$state()`
  */
-export function state<V>(v: V): State<V> {
+export function $state<V>(v: V): State<V> {
 	const s: State<V> = {
 		f: 0, // Так рекомендовано делать в исходниках
 		v,
