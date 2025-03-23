@@ -1,46 +1,51 @@
-import { state, update, set } from "#/reactivity/sources.js";
+import { $state, update } from "#/reactivity/sources.js";
 import { derived } from "#/reactivity/deriveds.js";
 import { $effect } from "#/reactivity/effects.js";
 import { get } from "#/runtime.js";
 import { exit } from "node:process";
 
-const counter = state(0);
-const x2 = derived(() => get(counter) * 2);
+let a = $state(0);
+let b = $state(0);
+let c = derived(() => get(a) * get(b));
 
-console.log("isRoot", !$effect.tracking());
+const dump = () => ({
+	a: get(a),
+	b: get(b),
+	c: get(c),
+});
+
+update(a); // 1
+update(b); // 1
 
 $effect.root(() => {
-	$effect(() => {
-		console.log("isEffect", $effect.tracking());
+	console.log("$effect -  a", dump());
+	$effect.root(() => {
+		$effect(() => {
+			console.log("$effect - b", dump());
+		});
 	});
 	$effect(() => {
-		console.log("effect - one - x2", get(x2));
-		console.log("effect - one - counter", get(counter));
-	});
-	$effect(() => {
-		console.log("effect - two - counter", get(counter));
-		console.log("effect - two - x2", get(x2));
+		console.log("$effect - c", dump());
 	});
 });
 
-console.log("root - counter", get(counter));
-console.log("root - x2", get(x2));
+update(a); // 2
+update(b); // 2
 
 setTimeout(() => {
-	console.log("update - before - counter", get(counter));
-	console.log("update - before - x2", get(x2));
-	update(counter);
-	console.log("update - after - counter", get(counter));
-	console.log("update - after - x2", get(x2));
+	update(a); // 3
+	console.log("update - 100", dump());
 }, 100);
 
 setTimeout(() => {
-	console.log("set - before - counter", get(counter));
-	console.log("set - before - x2", get(x2));
-	set(counter, 50);
-	console.log("set - after", get(counter));
-	console.log("set - after - counter", get(counter));
-	console.log("set - after - x2", get(x2));
+	update(b); // 3
+	console.log("update - 200", dump());
 }, 200);
+
+setTimeout(() => {
+	update(a); // 4
+	update(b); // 4
+	console.log("update - 300", dump());
+}, 300);
 
 setTimeout(() => exit(0), 1000);
