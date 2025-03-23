@@ -19,8 +19,6 @@ export interface State<V = unknown> extends Signal {
 }
 
 export interface Reaction extends Signal {
-	/** The associated component context */
-	//ctx: null | ComponentContext;
 	/** The reaction function */
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 	fn: null | Function;
