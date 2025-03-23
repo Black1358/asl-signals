@@ -9,6 +9,7 @@ export const DIRTY = 1 << 11;
 export const MAYBE_DIRTY = 1 << 12;
 export const INERT = 1 << 13;
 export const DESTROYED = 1 << 14;
+export const EFFECT_RAN = 1 << 15;
 export const EFFECT_HAS_DERIVED = 1 << 20;
 export const EFFECT_IS_UPDATING = 1 << 21;
 export const STATE_SYMBOL = Symbol("$state");

@@ -1,5 +1,5 @@
 import type { Callback, Derived, Effect } from "#/types.js";
-import { BOUNDARY_EFFECT, DERIVED, DESTROYED, DIRTY, EFFECT, EFFECT_HAS_DERIVED, ROOT_EFFECT, UNOWNED } from "#/constants.js";
+import { BOUNDARY_EFFECT, DERIVED, DESTROYED, DIRTY, EFFECT, EFFECT_HAS_DERIVED, EFFECT_RAN, ROOT_EFFECT, UNOWNED } from "#/constants.js";
 import { effect_in_teardown, effect_in_unowned_derived, effect_orphan } from "#/errors.js";
 import { remove_reactions, Runtime, schedule_effect, set_signal_status, update_effect } from "#/runtime.js";
 
@@ -137,7 +137,8 @@ function effect_root(fn: Callback): () => void {
 	const effect = create_effect(ROOT_EFFECT, fn, parent);
 
 	try {
-		update_effect(effect); // Запуск эффекта сразу же
+		update_effect(effect);
+		effect.f |= EFFECT_RAN;
 	} catch (e) {
 		destroy_effect(effect);
 		throw e;
