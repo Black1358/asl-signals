@@ -5,23 +5,39 @@ import { proxy } from "#/proxy.js";
 import { equals } from "#/reactivity/equality.js";
 import { get, increment_write_version, push_reaction_value, Runtime, schedule_effect, set_signal_status, untrack } from "#/runtime.js";
 
-/**
- * `$state()`
- */
-export function $state<V>(v: V): State<V> {
-	const s: State<V> = {
-		f: 0, // Так рекомендовано делать в исходниках
-		v,
-		reactions: null,
-		equals,
-		rv: 0,
-		wv: 0,
-	};
-	push_reaction_value(s);
-	return s;
-}
-
 //...
+
+/**
+ * @param {State} state
+ * @param {number} status should be DIRTY or MAYBE_DIRTY
+ */
+function mark_reactions(state: State, status: number): void {
+	const reactions = state.reactions;
+	if (reactions === null) return;
+	const length = reactions.length;
+
+	for (let i = 0; i < length; i++) {
+		const reaction = reactions[i];
+		const flags = reaction.f;
+
+		// Skip any effects that are already dirty
+		if ((flags & DIRTY) !== 0) continue;
+		set_signal_status(reaction, status);
+
+		/*
+			If the signal
+				a) was previously clean or
+				b) is an unowned derived, then mark it
+		 */
+		if ((flags & (CLEAN | UNOWNED)) !== 0) {
+			if ((flags & DERIVED) !== 0) {
+				mark_reactions(reaction as Derived, MAYBE_DIRTY);
+			} else {
+				schedule_effect(reaction as Effect);
+			}
+		}
+	}
+}
 
 export const old_values = new Map();
 
@@ -90,34 +106,15 @@ export function update_pre<T extends number | bigint>(source: State<T>, d: 1 | -
 
 //...
 
-/**
- * @param {State} state
- * @param {number} status should be DIRTY or MAYBE_DIRTY
- */
-function mark_reactions(state: State, status: number): void {
-	const reactions = state.reactions;
-	if (reactions === null) return;
-	const length = reactions.length;
-
-	for (let i = 0; i < length; i++) {
-		const reaction = reactions[i];
-		const flags = reaction.f;
-
-		// Skip any effects that are already dirty
-		if ((flags & DIRTY) !== 0) continue;
-		set_signal_status(reaction, status);
-
-		/*
-			If the signal
-				a) was previously clean or
-				b) is an unowned derived, then mark it
-		 */
-		if ((flags & (CLEAN | UNOWNED)) !== 0) {
-			if ((flags & DERIVED) !== 0) {
-				mark_reactions(reaction as Derived, MAYBE_DIRTY);
-			} else {
-				schedule_effect(reaction as Effect);
-			}
-		}
-	}
+export function $state<V>(v: V): State<V> {
+	const s: State<V> = {
+		f: 0, // Так рекомендовано делать в исходниках
+		v,
+		reactions: null,
+		equals,
+		rv: 0,
+		wv: 0,
+	};
+	push_reaction_value(s);
+	return s;
 }

@@ -19,20 +19,36 @@ import { destroy_effect_children, execute_effect_teardown, unlink_effect } from 
 import { old_values } from "#/reactivity/sources.js";
 
 export const Runtime: {
+	/**
+	 * Флаг игнорирования отслеживания зависимостей.
+	 * Если true, значит оно находится в `untrack`
+	 */
 	untracking: boolean;
 	/**
-	 * Tracks writes that the effect it's executed in doesn't listen to yet,
-	 * so that the dependency can be added to the effect later on if it then reads it
+	 * Отслеживает изменения состояний, которые текущий эффект ещё не слушает,
+	 * чтобы добавить зависимость позже, если эффект начнёт их читать
 	 */
 	untracked_writes: State[] | null;
 	/**
-	 * If we are working with a get() chain that has no active container,
-	 * to prevent memory leaks, we skip adding the reaction.
+	 * Пропуск добавления реакций, если нет активного контейнера,
+	 * чтобы предотвратить утечки памяти
 	 */
 	skip_reaction: boolean;
+	/**
+	 * Флаг процесса уничтожения эффекта
+	 */
 	is_destroying_effect: boolean;
+	/**
+	 * Текущая выполняемая реакция
+	 */
 	active_reaction: Reaction | null;
+	/**
+	 * Текущий активный эффект
+	 */
 	active_effect: Effect | null;
+	/**
+	 * Источники данных для текущей реакции
+	 */
 	reaction_sources: State[] | null;
 } = {
 	untracking: false,
@@ -56,10 +72,7 @@ export function push_reaction_value(value: State) {
 
 //...
 
-let queued_root_effects: Effect[] = [];
 let is_throwing_error: boolean = false;
-let is_flushing: boolean = false;
-let last_scheduled_effect: Effect | null = null;
 let is_updating_effect = false;
 
 /**
@@ -71,13 +84,10 @@ let new_deps: State[] | null = null;
 let skipped_deps = 0;
 
 /**
- * Used by sources and deriveds for handling updates.
- * Version starts from 1 so that unowned deriveds differentiate between a created effect and a run one for tracing
- **/
+ * Используется состояниями и производными для захвата обновлений.
+ * Версия начинается с 1, чтобы ненадёжные (unowned) производные отличали созданный эффект от запущенного для отслеживания
+ */
 let write_version: number = 1;
-
-/** Used to version each read of a source of derived to avoid duplicating dependencies inside a reaction */
-let read_version: number = 0;
 
 //...
 
@@ -198,16 +208,18 @@ function handle_error(error: unknown, effect: Effect, previous_effect: Effect | 
 	propagate_error(error, effect);
 }
 
-function schedule_possible_effect_self_invalidation(signal: State, effect: Effect, root = true) {
-	const reactions = signal.reactions;
+function schedule_possible_effect_self_invalidation(state: State, effect: Effect, root = true) {
+	const reactions = state.reactions;
 	if (reactions === null) return;
 
 	for (let i = 0; i < reactions.length; i++) {
 		const reaction = reactions[i];
 
-		if (Runtime.reaction_sources?.includes(signal)) continue;
+		// Пропускаем реакции, которые уже были обработаны
+		if (Runtime.reaction_sources?.includes(state)) continue;
 
 		if ((reaction.f & DERIVED) !== 0) {
+			// Рекурсивная обработка производных сигналов
 			schedule_possible_effect_self_invalidation(reaction as Derived, effect, false);
 		} else if (effect === reaction) {
 			if (root) {
@@ -220,19 +232,25 @@ function schedule_possible_effect_self_invalidation(signal: State, effect: Effec
 	}
 }
 
+//...
+
 /**
- * @template V
- * @param {Reaction} reaction
- * @returns {V}
+ * Версия каждого чтения состояния или производного, чтобы избежать дублирования зависимостей внутри реакции
  */
+let read_version: number = 0;
+
 export function update_reaction<V>(reaction: Reaction): V {
-	const previous_deps = new_deps;
-	const previous_skipped_deps = skipped_deps;
+	// Сохраняем предыдущее состояния контекста
+
 	let previous_untracked_writes = Runtime.untracked_writes;
+
 	const previous_reaction = Runtime.active_reaction;
 	const previous_skip_reaction = Runtime.skip_reaction;
 	const previous_reaction_sources = Runtime.reaction_sources;
 	const previous_untracking = Runtime.untracking;
+
+	const previous_deps = new_deps;
+	const previous_skipped_deps = skipped_deps;
 
 	const flags = reaction.f;
 
@@ -249,17 +267,19 @@ export function update_reaction<V>(reaction: Reaction): V {
 	reaction.f |= EFFECT_IS_UPDATING;
 
 	try {
-		// @ts-expect-error <ваще хз зачем так>
+		// @ts-expect-error <Гарантирует, что функция будет вызвана с this = undefined>
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
 		const result = (0, reaction.fn)() as Function;
 		let deps = reaction.deps;
 
+		// Обработка новых зависимостей
 		if ((new_deps as State[] | null) !== null) {
 			// eslint-disable-next-line no-var
 			var i: number;
 
 			remove_reactions(reaction, skipped_deps);
 
+			// Объединяем старые и новые зависимости
 			if (deps !== null && skipped_deps > 0) {
 				deps.length = skipped_deps + new_deps!.length;
 				for (i = 0; i < new_deps!.length; i++) {
@@ -269,6 +289,7 @@ export function update_reaction<V>(reaction: Reaction): V {
 				reaction.deps = deps = new_deps;
 			}
 
+			// Регистрируем реакцию в зависимостях
 			if (!Runtime.skip_reaction) {
 				for (i = skipped_deps; i < deps!.length; i++) {
 					(deps![i].reactions ??= []).push(reaction);
@@ -293,6 +314,8 @@ export function update_reaction<V>(reaction: Reaction): V {
 		// we need to increment the read version to ensure that
 		// any dependencies in this reaction aren't marked with
 		// the same version
+
+		// Восстановление контекста для вложенных реакций
 		if (previous_reaction !== null) {
 			read_version++;
 
@@ -307,13 +330,16 @@ export function update_reaction<V>(reaction: Reaction): V {
 
 		return result as V;
 	} finally {
-		new_deps = previous_deps;
-		skipped_deps = previous_skipped_deps;
+		// Восстанавливаем предыдущее состояние контекста
+
 		Runtime.untracked_writes = previous_untracked_writes;
 		Runtime.active_reaction = previous_reaction;
 		Runtime.skip_reaction = previous_skip_reaction;
 		Runtime.reaction_sources = previous_reaction_sources;
 		Runtime.untracking = previous_untracking;
+
+		new_deps = previous_deps;
+		skipped_deps = previous_skipped_deps;
 
 		reaction.f ^= EFFECT_IS_UPDATING;
 	}
@@ -384,7 +410,7 @@ export function update_effect(effect: Effect): void {
 	const flags = effect.f;
 	if ((flags & DESTROYED) !== 0) return;
 
-	set_signal_status(effect, CLEAN);
+	set_signal_status(effect, CLEAN); //Бит CLEAN у flags в 1
 
 	const previous_effect = Runtime.active_effect;
 	const was_updating_effect = is_updating_effect;
@@ -406,6 +432,13 @@ export function update_effect(effect: Effect): void {
 	}
 }
 
+//...
+
+/**
+ * Последний запланированный эффект
+ */
+let last_scheduled_effect: Effect | null = null;
+
 function infinite_loop_guard() {
 	try {
 		effect_update_depth_exceeded();
@@ -420,6 +453,18 @@ function infinite_loop_guard() {
 	}
 }
 
+//...
+
+/**
+ * Очередь корневых эффектов
+ */
+let queued_root_effects: Effect[] = [];
+
+/**
+ * Выполнение эффектов
+ */
+let is_flushing: boolean = false;
+
 function flush_queued_root_effects() {
 	const was_updating_effect = is_updating_effect;
 
@@ -427,34 +472,37 @@ function flush_queued_root_effects() {
 		let flush_count = 0;
 		is_updating_effect = true;
 
+		// Обрабатываем все корневые эффекты в очереди
 		while (queued_root_effects.length > 0) {
 			if (flush_count++ > 1000) {
 				infinite_loop_guard();
 			}
 
+			// Берем текущую очередь и очищаем основную
 			const root_effects = queued_root_effects;
-			const length = root_effects.length;
-
 			queued_root_effects = [];
 
+			const length = root_effects.length;
+
+			// Обрабатываем каждый корневой эффект
 			for (let i = 0; i < length; i++) {
+				// Собираем все дочерние эффекты в топологическом порядке
 				const collected_effects = process_effects(root_effects[i]);
+				// Выполняем собранные эффекты
 				flush_queued_effects(collected_effects);
 			}
 		}
 	} finally {
+		// Восстанавливаем состояние системы
 		is_flushing = false;
 		is_updating_effect = was_updating_effect;
-
 		last_scheduled_effect = null;
 		old_values.clear();
 	}
 }
 
-/**
- * @param {Array<Effect>} effects
- * @returns {void}
- */
+//...
+
 function flush_queued_effects(effects: Array<Effect>): void {
 	const length = effects.length;
 	if (length === 0) return;
@@ -464,6 +512,7 @@ function flush_queued_effects(effects: Array<Effect>): void {
 
 		if ((effect.f & (DESTROYED | INERT)) === 0) {
 			try {
+				// Основная логика выполнения эффекта
 				if (check_dirtiness(effect)) {
 					update_effect(effect);
 
@@ -472,6 +521,8 @@ function flush_queued_effects(effects: Array<Effect>): void {
 					// don't know if we need to keep them until they are executed. Doing the check
 					// here (rather than in `update_effect`) allows us to skip the work for
 					// immediate effects.
+
+					// Очистка ненужных эффектов
 					if (effect.deps === null && effect.first === null) {
 						if (effect.teardown === null) {
 							// remove this effect from the graph
@@ -489,33 +540,32 @@ function flush_queued_effects(effects: Array<Effect>): void {
 	}
 }
 
-/**
- * @param {Effect} signal
- * @returns {void}
- */
 export function schedule_effect(signal: Effect): void {
 	if (!is_flushing) {
 		is_flushing = true;
 		queueMicrotask(flush_queued_root_effects);
 	}
 
+	// Идём вверх по цепочке родительских эффектов
 	let effect = (last_scheduled_effect = signal);
-
 	while (effect.parent !== null) {
 		effect = effect.parent;
 		const flags = effect.f;
 
+		// Если нашли корневой эффект
 		if ((flags & ROOT_EFFECT) !== 0) {
+			// Если эффект уже чистый - выходим
 			if ((flags & CLEAN) === 0) return;
+			// Помечаем как "грязный" для последующей обработки
 			effect.f ^= CLEAN;
 		}
 	}
 
+	// Добавляем корневой эффект в очередь
 	queued_root_effects.push(effect);
 }
 
 /**
- *
  * This function both runs render effects and collects user effects in topological order
  * from the starting effect passed in. Effects will be collected when they match the filtered
  * bitwise flag passed in only. The collected effects array will be populated with all the user
@@ -525,26 +575,29 @@ function process_effects(root: Effect): Effect[] {
 	const effects: Effect[] = [];
 	let effect: Effect | null = root;
 
+	// Обход дерева эффектов в глубину
 	while (effect !== null) {
 		const flags = effect.f;
-		const is_branch = (flags & ROOT_EFFECT) !== 0;
-		const is_skippable_branch = is_branch && (flags & CLEAN) !== 0;
+		const is_root = (flags & ROOT_EFFECT) !== 0;
+		const is_skippable_root = is_root && (flags & CLEAN) !== 0;
 
-		if (!is_skippable_branch && (flags & INERT) === 0) {
+		if (!is_skippable_root && (flags & INERT) === 0) {
+			// Добавляем пользовательские эффекты в очередь
 			if ((flags & EFFECT) !== 0) {
 				effects.push(effect);
-			} else if (is_branch) {
+			} else if (is_root) {
+				// Переключаем флаг CLEAN для корневых эффектов
 				effect.f ^= CLEAN;
 			} else {
 				// Ensure we set the effect to be the active reaction
 				// to ensure that unowned deriveds are correctly tracked
 				// because we're flushing the current effect
+
+				// Обработка производных
 				const previous_active_reaction = Runtime.active_reaction;
 				try {
 					Runtime.active_reaction = effect;
-					if (check_dirtiness(effect)) {
-						update_effect(effect);
-					}
+					if (check_dirtiness(effect)) update_effect(effect);
 				} catch (error) {
 					handle_error(error, effect, null);
 				} finally {
@@ -552,17 +605,19 @@ function process_effects(root: Effect): Effect[] {
 				}
 			}
 
+			// Переходим к дочерним эффектам
 			const child: Effect | null = effect.first;
-
 			if (child !== null) {
 				effect = child;
 				continue;
 			}
 		}
 
+		// Переход к следующему эффекту в дереве
 		let parent = effect.parent;
 		effect = effect.next;
 
+		// Возврат на уровень выше при необходимости
 		while (effect === null && parent !== null) {
 			effect = parent.next;
 			parent = parent.parent;
@@ -572,11 +627,13 @@ function process_effects(root: Effect): Effect[] {
 	return effects;
 }
 
+//...
+
 /**
  * Synchronously flush any pending updates.
  * Returns void if no callback is provided, otherwise returns the result of calling the callback.
  */
-export function flushSync<T>(fn?: () => T): T {
+export function flush<T>(fn?: () => T): T {
 	let result!: T;
 
 	if (fn) {
@@ -594,65 +651,66 @@ export function flushSync<T>(fn?: () => T): T {
 }
 
 /**
- * Returns a promise that resolves once any pending state changes have been applied.
+ * Returns a promise that resolves once any pending state changes have been applied
  */
 export async function tick(): Promise<void> {
 	await Promise.resolve();
 	// By calling flushSync we guarantee that any pending state changes are applied after one tick.
 	// TODO look into whether we can make flushing subsequent updates synchronously in the future.
-	flushSync();
+	flush();
 }
 
-export function get<V>(signal: State<V>): V {
+//...
+
+export function get<V>(signal: State<V> | Derived<V>): V {
 	const flags = signal.f;
 	const is_derived = (flags & DERIVED) !== 0;
+	const derived = signal as Derived<V>;
 
-	// Register the dependency on the current reaction signal.
+	// Регистрация зависимости в текущей реакции (effect/derived)
 	if (Runtime.active_reaction !== null && !Runtime.untracking) {
 		if (!Runtime.reaction_sources?.includes(signal)) {
 			const deps = Runtime.active_reaction.deps;
+			// Если сигнал не обновлялся с последнего чтения
 			if (signal.rv < read_version) {
 				signal.rv = read_version;
-				// If the signal is accessing the same dependencies in the same
-				// order as it did last time, increment `skipped_deps`
-				// rather than updating `new_deps`, which creates GC cost
+				// Оптимизация: если зависимости повторяются в том же порядке,
+				// увеличиваем skipped_deps вместо создания новых зависимостей
+				// уменьшает нагрузку на GC при повторных зависимостях
 				if (new_deps === null && deps !== null && deps[skipped_deps] === signal) {
 					skipped_deps++;
 				} else if (new_deps === null) {
 					new_deps = [signal];
 				} else if (!Runtime.skip_reaction || !new_deps.includes(signal)) {
-					// Normally we can push duplicated dependencies to `new_deps`, but if we're inside
-					// an unowned derived because skip_reaction is true, then we need to ensure that
-					// we don't have duplicates
+					// Обычно можно поместить дублирующиеся зависимости в "new_deps",
+					// но если мы находимся внутри производной, которой никто не владеет (skip_reaction)
+					// то нужно убедиться, что нет дубликатов
 					new_deps.push(signal);
 				}
 			}
 		}
-	} else if (is_derived && (signal as Derived).deps === null && (signal as Derived).effects === null) {
-		// eslint-disable-next-line no-var
-		var derived = signal as Derived;
+	} else if (is_derived && derived.deps === null && derived.effects === null) {
+		// Обработка ненадёжных (unowned) производных
 		const parent = derived.parent;
-
 		if (parent !== null && (parent.f & UNOWNED) === 0) {
-			// If the derived is owned by another derived then mark it as unowned
-			// as the derived value might have been referenced in a different context
-			// since and thus its parent might not be its true owner anymore
+			// Если производное значение принадлежит другому производному, то он ненадёжный
+			// поскольку на производное значение могли ссылаться в другом контексте
+			// и его родительский элемент может больше не быть его истинным владельцем
 			derived.f ^= UNOWNED;
 		}
 	}
 
-	if (is_derived) {
-		derived = signal as Derived;
-
-		if (check_dirtiness(derived)) {
-			update_derived(derived);
-		}
+	// Обновление производных сигналов при необходимости
+	if (is_derived && check_dirtiness(derived)) {
+		update_derived(derived);
 	}
 
+	// Возврат старого значения во время уничтожения эффекта
 	if (Runtime.is_destroying_effect && old_values.has(signal)) {
 		return old_values.get(signal);
 	}
 
+	// Возврат актуального значения
 	return signal.v;
 }
 
